@@ -1,0 +1,10 @@
+# Corpus: freely distributed by its author, but not ours to redistribute.
+# Fetch it with the curl command in the README.
+gloomhaven_rulebook.pdf
+
+# Course handout, not part of the deliverable
+RAG_LMA_Assignment_v1_copy.pdf
+
+.ipynb_checkpoints/
+__pycache__/
+.env
