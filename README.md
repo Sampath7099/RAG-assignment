@@ -19,7 +19,7 @@ Everything except the two answer-generation cells runs without a key.
 | File | What it is |
 |---|---|
 | `rag_rerank.ipynb` | The deliverable. Run top to bottom. |
-| `rag_rerank_executed.ipynb` | Same notebook with outputs saved, minus the LLM cells. |
+| `rag_rerank_executed.ipynb` | Same notebook with saved outputs. The final LLM cell stops on a 429 once the free-tier quota is spent. |
 | `gloomhaven_rulebook.pdf` | Corpus — 74k chars, 39 sections, 167 chunks at size 550. |
 
 ## Corpus
@@ -84,20 +84,20 @@ rule. Example:
 
 | | mean |
 |---|---|
-| Baseline retrieval | 7.7 ms |
-| + cross-encoder re-rank | 166.8 ms |
-| Overhead | **21.7×** |
+| Baseline retrieval | 8.2 ms |
+| + cross-encoder re-rank | 169.8 ms |
+| Overhead | **20.7×** |
 
 ### Why not cross-encode the whole corpus
 
-Measured at 16.1 ms per (query, chunk) pair:
+Measured at 14.6 ms per (query, chunk) pair:
 
 | Scope | Time per query |
 |---|---|
-| Top-10 re-rank (what we do) | 0.16 s |
-| This corpus (167 chunks) | 2.68 s |
-| 100k chunks | 26.8 min |
-| 1M chunks | 4.5 hours |
+| Top-10 re-rank (what we do) | 0.15 s |
+| This corpus (167 chunks) | 2.44 s |
+| 100k chunks | 24 min |
+| 1M chunks | 4.1 hours |
 
 Bi-encoder chunk vectors are computed once and reused forever. A cross-encoder score depends
 on query and chunk *jointly*, so nothing can be precomputed — cost grows linearly with corpus
