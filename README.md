@@ -19,8 +19,9 @@ Everything except the two answer-generation cells runs without a key.
 | File | What it is |
 |---|---|
 | `rag_rerank.ipynb` | The deliverable. Run top to bottom. |
-| `rag_rerank_executed.ipynb` | Same notebook with saved outputs. The final LLM cell stops on a 429 once the free-tier quota is spent. |
-| `gloomhaven_rulebook.pdf` | Corpus — 74k chars, 39 sections, 167 chunks at size 550. |
+| `rag_rerank_executed.ipynb` | Same notebook with saved outputs, including all 7 Answer 1 / Answer 2 pairs. |
+| `report.tex` / `report.pdf` | The written report. |
+| `gloomhaven_rulebook.pdf` | Corpus — 74k chars, 39 sections, 167 chunks at size 550. Not committed; fetch it with the curl command below. |
 
 ## Corpus
 
@@ -59,6 +60,7 @@ answer the question, which makes "did retrieval work" measurable instead of a ju
 | **FIXED** | 7 | 1 | am I allowed to skip part of what my card tells me to do? |
 | **FIXED** | 6 | 2 | may a stunned figure drink a healing potion on its turn? |
 | **FIXED** | 7 | 3 | what occurs if a monster has nothing it is able to aim at? |
+| **FIXED** | 9 | 2 | can an enemy creature grab the treasure chest in the room? |
 | ~~FIXED~~ artifact | 4 | 3 | may I stockpile two of the same piece of equipment? |
 | both correct | 1 | 1 | does mending someone's injuries also cure the venom? |
 | both correct | 2 | 1 | can a beast walk through a shut entryway like a hero can? |
@@ -67,10 +69,10 @@ answer the question, which makes "did retrieval work" measurable instead of a ju
 | stage-1 miss | — | — | if I strike back at someone, does that count as attacking? |
 | stage-1 miss | — | — | is there a ceiling on restoring a hero's vitality? |
 
-Re-ranking produced **3 genuine rescues**, broke 2, and one apparent fix was a measurement
+Re-ranking produced **4 genuine rescues**, broke 2, and one apparent fix was a measurement
 artifact (see caveat 3).
 
-In all 3 genuine cases the LLM independently confirmed the failure — Answer 1 said some
+In every rescue the LLM confirms the retrieval result independently — Answer 1 said some
 variant of *"the context does not contain the answer"*, while Answer 2 quoted the governing
 rule. Example:
 
@@ -84,20 +86,20 @@ rule. Example:
 
 | | mean |
 |---|---|
-| Baseline retrieval | 8.2 ms |
-| + cross-encoder re-rank | 169.8 ms |
-| Overhead | **20.7×** |
+| Baseline retrieval | 7.0 ms |
+| + cross-encoder re-rank | 160.6 ms |
+| Overhead | **22.8×** |
 
 ### Why not cross-encode the whole corpus
 
-Measured at 14.6 ms per (query, chunk) pair:
+Measured at 13.2 ms per (query, chunk) pair:
 
 | Scope | Time per query |
 |---|---|
-| Top-10 re-rank (what we do) | 0.15 s |
-| This corpus (167 chunks) | 2.44 s |
-| 100k chunks | 24 min |
-| 1M chunks | 4.1 hours |
+| Top-10 re-rank (what we do) | 0.13 s |
+| This corpus (167 chunks) | 2.20 s |
+| 100k chunks | 22 min |
+| 1M chunks | 3.7 hours |
 
 Bi-encoder chunk vectors are computed once and reused forever. A cross-encoder score depends
 on query and chunk *jointly*, so nothing can be precomputed — cost grows linearly with corpus
@@ -108,12 +110,14 @@ size, at query time.
 | size | chunks | fixed | broken | stage-1 misses |
 |---|---|---|---|---|
 | 450 | 219 | 2 | 0 | 3 |
-| 550 | 167 | **4** | 2 | 2 |
-| 700 | 126 | 1 | 1 | 2 |
+| 550 | 167 | **5** | 2 | 2 |
+| 700 | 126 | 2 | 1 | 2 |
 
 ## Two caveats worth keeping
 
-1. **Re-ranking is not a free win.** It demoted a correct chunk out of the top 3 twice.
+1. **Re-ranking is not a free win.** It demoted a correct chunk out of the top 3 twice —
+   though in both cases another chunk in the context carried the same rule, so neither
+   answer actually got worse.
 2. **Recall@10 is a hard ceiling.** A re-ranker can only reorder what stage 1 handed it. Two
    queries failed in both pipelines because the correct chunk was never in the top 10 at all.
 3. **Substring-gold undercounts.** The rulebook states the duplicate-items rule twice in

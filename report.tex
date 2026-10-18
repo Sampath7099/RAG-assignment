@@ -1,22 +1,11 @@
-% RAG Assignment report
-%
-% HOW TO USE THIS FILE
-% Every table, number and figure below is real output from rag_rerank.ipynb.
-% Every DRAFT block is a starting point -- rewrite it in your own words.
-% Delete the \draft macro definition and all \draft calls before submitting.
-%
-% Build:  pdflatex report.tex
+% RAG Assignment report -- build with: pdflatex report.tex
+% Every table and number below is output from rag_rerank.ipynb (see rag_rerank_executed.ipynb).
 
 \documentclass[11pt,a4paper]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{booktabs}
-\usepackage{xcolor}
 \usepackage{hyperref}
 \usepackage{listings}
-
-% --- remove this macro (and every use of it) once you've written your text ---
-% DRAFT text is a starting point only -- rewrite before submitting.
-\newcommand{\draft}[1]{\medskip\noindent\textcolor{gray}{#1}\medskip}
 
 \title{Baseline Retrieval vs.\ Cross-Encoder Re-Ranking:\\
        A Two-Stage RAG Study on the Gloomhaven Rulebook}
@@ -42,58 +31,56 @@ Vector store    & normalised matrix, cosine via one NumPy matmul \\
 \end{tabular}
 
 \medskip
-Both pipelines share stage-1 retrieval and call the same generation function with
-an identical prompt string, so the only variable between Answer 1 and Answer 2 is
-which three chunks are selected.
+Both pipelines share stage-1 retrieval and call the same generation function with an
+identical prompt, so the only thing that differs between Answer 1 and Answer 2 is which
+three chunks go into the context.
 
-\draft{A rulebook was chosen over a policy or legal document deliberately. The failure
-modes this assignment asks for -- keyword traps, exceptions, negation -- all require a document
-that defines many near-synonymous terms precisely and then qualifies them. Gloomhaven separates
-\emph{exhausted} from \emph{eliminated} and \emph{lost} from \emph{discarded}, and states most
-rules as a general case followed by a restriction located paragraphs away. A regulatory PDF has
-similar structure but spreads it over far more text, meaning a larger corpus for the same number
-of usable test cases.}
+I picked a rulebook over a policy or legal PDF on purpose. The failure modes the brief asks
+for -- keyword traps, exceptions, negation -- need a document that defines a lot of
+near-synonymous terms and then qualifies them. Gloomhaven keeps \emph{exhausted} separate
+from \emph{eliminated} and \emph{lost} separate from \emph{discarded}, and it usually states
+a general rule in one place and the restriction on it somewhere else. A regulatory document
+does the same thing, but over far more text for the same number of usable test cases.
 
 \section{Architecture Comparison}
 
-\draft{The two models differ in when the query and the document meet.
+The difference is where in the computation the query meets the document.
 
-A bi-encoder passes each text through the transformer separately and mean-pools the token states
-into one fixed vector. Chunk vectors depend on nothing but the chunk, so they can be computed
-once at index time; a query is embedded at run time and compared by cosine similarity. The entire
-interaction between query and chunk is a single dot product between two vectors produced in
-ignorance of each other. Whatever mean-pooling discarded is unavailable at scoring time, and
-pooling is lossy in a specific way: it is order-insensitive and dominated by tokens carrying the
-most semantic weight. Function words that invert meaning -- \emph{not}, \emph{cannot},
-\emph{except} -- contribute little relative to content words, which is why ``a stunned figure may
-use items'' and ``a stunned figure cannot use items'' land close together in the space.
+A bi-encoder runs each text through the transformer on its own and mean-pools the token
+states into one vector. A chunk vector depends on nothing but the chunk, so it can be built
+once at index time; the query is embedded at run time and compared by cosine similarity.
+The whole interaction between query and chunk is one dot product between two vectors that
+were produced without seeing each other. Anything pooling threw away is gone by scoring
+time, and pooling throws things away in a particular way -- it ignores order and is
+dominated by the heavy content words. The little words that flip the meaning
+(\emph{not}, \emph{cannot}, \emph{except}) barely move the vector, which is why ``a stunned
+figure may use items'' and ``a stunned figure cannot use items'' end up as near neighbours.
 
-A cross-encoder produces no comparable vectors at all. It concatenates query and chunk into one
-sequence and runs full self-attention over the pair, so every query token attends to every chunk
-token. The output is a single relevance score for that specific pairing. This lets the model
-condition on exact token alignment: \emph{cannot} in the chunk can attend directly to \emph{may}
-in the query and change the score, which is impossible once both have been pooled.
+A cross-encoder never produces comparable vectors at all. It concatenates query and chunk
+into one sequence and runs self-attention across the pair, so every query token can attend
+to every chunk token, and the output is a single score for that one pairing. That is what
+lets it react to exact token alignment: \emph{cannot} in the chunk can attend to \emph{may}
+in the query and drag the score down. Once both sides have been pooled, that is no longer
+possible.
 
-The cost of that expressiveness is that nothing can be precomputed. A bi-encoder index is built
-once; a cross-encoder score exists only after the query arrives and must be recomputed for every
-candidate. This asymmetry is the entire justification for the two-stage design, and Section 6
-quantifies it.}
+What it costs is precomputation. A bi-encoder index is built once; a cross-encoder score
+only exists after the query arrives, and has to be recomputed for every candidate. That
+asymmetry is the whole reason for the two-stage design, and Section 6 puts numbers on it.
 
 \section{Query Set and Method}
 
-Ten queries were written against rules located by reading the document first, then
-phrased deliberately in everyday synonyms rather than the rulebook's own vocabulary
-(``strike back'' for \emph{retaliate}, ``shut entryway'' for \emph{closed door}).
-A gold chunk was identified by hand for each query, and a query counts as answered
-only when the gold chunk appears in the top 3.
+Eleven queries, written against rules I found by reading the document first and then phrased
+in everyday synonyms rather than the rulebook's own vocabulary (``strike back'' for
+\emph{retaliate}, ``shut entryway'' for \emph{closed door}). For each query I marked a gold
+chunk by hand, and a query counts as answered only if the gold chunk is in the top 3.
 
-\draft{Phrasing matters more than it first appears. If queries reuse the document's own
-vocabulary, lexical overlap alone ranks the correct chunk first and both pipelines succeed,
-measuring nothing. Writing ``strike back'' instead of \emph{retaliate} and ``shut entryway''
-instead of \emph{closed door} removes that shortcut and forces retrieval to work semantically --
-the condition under which the architectures actually differ. Queries were written after reading
-the rulebook and locating a genuinely tricky rule, rather than by guessing and hoping some would
-fail.}
+Phrasing turned out to matter more than I expected. If the queries reuse the document's own
+words, lexical overlap alone puts the right chunk first, both pipelines succeed and the
+experiment measures nothing. Writing ``strike back'' instead of \emph{retaliate} takes that
+shortcut away and forces retrieval to work semantically, which is the only condition under
+which the two architectures actually behave differently. I also wrote each query after
+locating a genuinely awkward rule, rather than guessing at queries and hoping some would
+fail.
 
 \section{Qualitative and Rank-Shift Analysis}
 
@@ -106,7 +93,8 @@ Verdict & & bi $\rightarrow$ ce & Query \\
 Fixed by re-rank    && 7 $\rightarrow$ 1 & am I allowed to skip part of what my card tells me to do? \\
 Fixed by re-rank    && 6 $\rightarrow$ 2 & may a stunned figure drink a healing potion on its turn? \\
 Fixed by re-rank    && 7 $\rightarrow$ 3 & what occurs if a monster has nothing it is able to aim at? \\
-Artifact (see 4.4)  && 4 $\rightarrow$ 3 & may I stockpile two of the same piece of equipment? \\
+Fixed by re-rank    && 9 $\rightarrow$ 2 & can an enemy creature grab the treasure chest in the room? \\
+Artifact (see 4.5)  && 4 $\rightarrow$ 3 & may I stockpile two of the same piece of equipment? \\
 Both correct        && 1 $\rightarrow$ 1 & does mending someone's injuries also cure the venom? \\
 Both correct        && 2 $\rightarrow$ 1 & can a beast walk through a shut entryway? \\
 Broken by re-rank   && 2 $\rightarrow$ 6 & do I get a bigger hand of cards as I grow more powerful? \\
@@ -117,7 +105,9 @@ Stage-1 miss        && --- & is there a ceiling on restoring a wounded hero's vi
 \end{tabular}
 
 \medskip
-Three genuine rescues, two regressions, two failures that re-ranking could not reach.
+So: four genuine rescues, two rank regressions (neither of which changed the answer --
+see 4.3), and two failures re-ranking could not touch because the gold chunk never reached
+it.
 
 \subsection{Rank shifts on the rescued queries}
 
@@ -128,32 +118,28 @@ Query & Gold chunk & bi-rank & ce-rank & bi-score & ce-score \\
 skip part of an action      & 17 & 7 & 1 & 0.330 & $-3.475$ \\
 stunned figure, potion      & 43 & 6 & 2 & 0.344 & $-1.680$ \\
 monster with no target      & 71 & 7 & 3 & 0.476 & $-1.628$ \\
+monsters looting treasure   & 80 & 9 & 2 & 0.285 & $-5.546$ \\
 \bottomrule
 \end{tabular}
 
 \medskip
-Note the bi-encoder scores: on the first query the gold chunk scored 0.330 against
-0.396 for the top-ranked distractor -- a gap of 0.066 across seven rank positions.
+The bi-encoder scores are the interesting column. On the first query the gold chunk scored
+0.330 against 0.396 for the top distractor -- 0.066 separating rank 1 from rank 7, with all
+ten candidates inside a band about 0.07 wide. When every chunk on the topic gets roughly the
+same similarity, the ordering inside that band is decided by differences that do not
+correspond to anything about relevance.
 
-\draft{The score distributions are the most informative part of this table. On the first
-query the gold chunk scored 0.330 while the top-ranked distractor scored 0.396 -- 0.066
-separating rank 1 from rank 7, with all ten candidates inside a band roughly 0.07 wide. When
-every topically-related chunk receives nearly the same similarity, ordering within that band is
-determined by differences that correspond to nothing meaningful about relevance.
-
-This is a predictable consequence of mean-pooled cosine similarity. Pooling maps any passage
-about taking a turn into approximately the same region of the space, so chunks sharing a topic
-share a score, and the metric has no resolution left to distinguish the chunk that answers the
-question from six that merely discuss it.
-
-Cross-encoder scores on the same candidates span $-3.5$ to $-11.3$ -- several points rather than
-hundredths. Scoring each pair jointly, the model is not committed to placing all turn-related
-chunks together, and separates them decisively.}
+That is what mean-pooled cosine similarity does. Pooling maps any passage about taking a
+turn into much the same region of the space, so chunks that share a topic share a score, and
+there is no resolution left to separate the one chunk that answers the question from six that
+merely talk around it. The cross-encoder scores on the same candidates run from $-3.5$ to
+$-11.3$ -- several points apart instead of hundredths. Because it scores each pair jointly it
+is not obliged to keep all the turn-related chunks together, and it pulls them apart.
 
 \subsection{Answer 1 vs Answer 2}
 
-On the stun query the baseline did not hallucinate -- it correctly reported that it
-could not answer:
+On the stun query the baseline did not hallucinate. It correctly reported that it could not
+answer:
 
 \begin{quote}
 \textbf{Answer 1 (baseline):} ``the answer is not contained within the text\ldots\ the
@@ -166,32 +152,53 @@ its turn. \emph{STUN: The figure cannot perform any abilities or use items excep
 character, to perform a long rest.}'' (chunk 43)
 \end{quote}
 
-\draft{The baseline's failure mode deserves attention, because it is not the one the
-assignment anticipates. It did not hallucinate. It correctly determined that its three chunks did
-not address the stun condition and said so.
+That failure mode is worth dwelling on, because it is not the one the brief expects. The
+baseline worked out that its three chunks did not cover the stun condition and said so. That
+comes from the prompt, which tells the model to state when the context is insufficient
+instead of guessing. Under that instruction, a retrieval failure degrades into an abstention
+rather than a fabrication, which is the safer outcome -- a user told ``this isn't in the
+context'' knows to go and look, a user given a confident wrong answer does not.
 
-That behaviour is a product of the prompt, which instructs the model to state explicitly when
-context is insufficient rather than guess. Under that constraint, retrieval failure degrades into
-abstention instead of fabrication -- the safer outcome, since a user told ``this is not in the
-context'' knows to look elsewhere, while a user given a confident wrong answer does not.
+I would not conclude that the prompt solves anything. The same three chunks under a looser
+prompt, or with a model more willing to fill the gap, would plausibly have produced an answer
+stitched together from the general action rules: fluent, specific and wrong. And abstention
+is still a failure. The user asked an answerable question about a rule that is in the
+document and got nothing back. The prompt turned a wrong answer into a missing one.
+Retrieval quality sets a ceiling on answer quality that prompt wording can protect but cannot
+raise.
 
-It would be wrong to conclude the prompt solves the problem. The same three chunks under a less
-careful prompt, or with a model more disposed to fill gaps, would plausibly have produced an
-answer assembled from the general action rules -- fluent, specific and wrong. And abstention is
-still failure: the user asked an answerable question about a rule present in the document and
-received nothing. The prompt converted a wrong answer into a missing one. Retrieval quality sets
-a ceiling on answer quality that prompt engineering can protect but cannot raise.}
+The exceptions query shows the same contrast in a milder form. The baseline had the general
+permission and knew it was not enough:
 
-\draft{The two regressions sharpen this. Both involve a general rule and a specific
-instance of it. For the hand-size query the cross-encoder promoted chunks about levelling up and
-card availability over the chunk stating that hand size is fixed at the value printed on the
-character mat; for the pressure-plate query it preferred passages about doors and room reveals
-over the specific rule on sealed entrances. In both cases the demoted chunk answers the question
-tersely, in a single clause, while the promoted chunks discuss the topic at greater length. A
-re-ranker trained on web passage relevance appears to reward elaboration on the query's subject,
-which is usually a sound heuristic and is wrong exactly when the answer is a one-line exception.
-The failures are not random: they are the same mechanism that produces the rescues, applied where
-it does not fit.}
+\begin{quote}
+\textbf{Answer 1 (baseline):} ``it is not explicitly stated whether an enemy creature can
+grab a treasure chest. The context only specifies that: \emph{Treasure tiles can be looted
+by a player.}'' (chunk 92)
+\end{quote}
+
+\begin{quote}
+\textbf{Answer 2 (re-ranked):} ``No, an enemy creature cannot grab or loot a treasure tile.
+\emph{Monsters are unable to loot treasure tiles.}'' (chunk 80)
+\end{quote}
+
+The two regressions are more interesting than I expected, because neither of them survives
+contact with the generated answers. Both involve a general rule and a specific instance of
+it. On the hand-size query the cross-encoder promoted chunks about levelling up and card
+availability over chunk 125, which states that levelling up never changes maximum hand size.
+That is a real rank regression -- but the answers are both correct. Answer 1 quoted chunks
+125 and 127; Answer 2 lost 125 and quoted 127 instead, which says the hand limit ``must
+remain the same'' and answers the question just as well. On the sealed-entrances query both
+pipelines abstained, so re-ranking cost nothing there either.
+
+So the honest statement is that re-ranking demoted the gold chunk twice and degraded the
+answer zero times. That matters for how the retrieval metric should be read: ranking the
+marked chunk out of the top 3 is only a failure if no other retrieved chunk supports the
+same answer, and on this document rules are often stated in more than one place. The
+mechanism behind the demotions still looks real -- in both cases the demoted chunk answers
+in a single clause while the promoted ones discuss the topic at length, and a re-ranker
+trained on web passage relevance appears to reward elaboration on the query's subject. I
+would expect that to do visible damage on a corpus that states each rule exactly once. It
+simply did not do any here.
 
 \subsection{Failure categories covered}
 
@@ -206,7 +213,11 @@ Baseline top 3 (chunks 18, 11, 16) are saturated with \emph{card}, \emph{action}
 Rank 7 $\rightarrow$ 1. \\
 \addlinespace
 Exceptions \& corner cases &
-\textcolor{red}{[not yet isolated -- see note below]} & --- \\
+can an enemy creature grab the treasure chest in the room? &
+Baseline returns the general looting rules (chunk 92, ``treasure tiles can be
+looted by a player''; chunk 61, end-of-turn looting). The restriction sits in the
+monster section: ``Monsters are unable to loot treasure tiles'' (chunk 80).
+Rank 9 $\rightarrow$ 2. \\
 \addlinespace
 Negation \& constraints &
 may a stunned figure drink a healing potion on its turn? &
@@ -215,39 +226,41 @@ quotes it. Rank 6 $\rightarrow$ 2. \\
 \addlinespace
 Buried chunk (ranks 4--10 promoted) &
 what occurs if a monster has nothing it is able to aim at? &
-Gold chunk 71 at rank 7, promoted to 3. Also observed at ranks 6, 7 and 4 on the
+Gold chunk 71 at rank 7, promoted to 3. Also observed at ranks 6, 9 and 4 on the
 other queries. \\
 \bottomrule
 \end{tabular}
 
 \medskip
-\textcolor{red}{\textbf{TODO:} the exceptions/corner-case category currently shares the
-stun query with negation. Add a dedicated query where the baseline returns a general
-rule and the governing ``except when\ldots'' sits in a different chunk, then fill the
-row above.}
+The treasure query is the cleanest example of the exceptions case in the whole set. Both
+halves of the rule are about looting, so the bi-encoder has no way to tell that one of them
+is the general permission and the other is the restriction that governs the question; it
+ranked the general statements first and left the restriction at rank 9. The cross-encoder,
+reading ``enemy creature'' against ``monsters are unable to\ldots'' in the same forward
+pass, moved it to rank 2.
 
 \subsection{A measurement artifact worth reporting}
 
-The duplicate-items query appears in the table as fixed, but it is not. The rulebook
-states the rule twice in different words:
+The duplicate-items query shows up as fixed, but it is not. The rulebook states the rule
+twice, in different words:
 
 \begin{quote}
 ``You cannot own more than 1 copy of any item card.'' \\
 ``No character may own duplicates of the same item.''
 \end{quote}
 
-The gold substring matched only the first. The baseline's top 3 contained the second,
-so its answer was correct while being scored wrong.
+My gold substring only matched the first. The baseline's top 3 contained the second, so it
+answered correctly and was scored wrong.
 
-\draft{Any evaluation testing for a fixed substring inherits this problem, and the
-bias is not symmetric. A document stating a rule once in the gold string's words is scored
-correctly; a document that paraphrases itself produces false failures for whichever pipeline
-retrieved the paraphrase. Since the measurement was built around cases where the baseline was
-expected to fail, errors of this kind flatter the re-ranker. Two fixes exist: accept a set of
-acceptable phrasings per query, or abandon chunk identity as the criterion and judge the
-generated answer against the rule itself. The second is more work and more faithful, since
-retrieving a different chunk supporting the same correct answer is not a retrieval failure in any
-sense a user would recognise.}
+Any evaluation that tests for a fixed substring has this problem, and the bias is not
+even-handed. A rule stated once in the gold string's words is scored correctly; a document
+that paraphrases itself produces false failures for whichever pipeline happened to retrieve
+the paraphrase. Since I built the query set around cases where the baseline was expected to
+struggle, errors of this kind flatter the re-ranker. There are two fixes: allow a set of
+acceptable phrasings per query, or stop using chunk identity as the criterion and judge the
+generated answer against the rule instead. The second is more work and more honest, because
+retrieving a different chunk that supports the same correct answer is not a retrieval failure
+in any sense a user would recognise.
 
 \subsection{Sensitivity to chunk size}
 
@@ -256,27 +269,28 @@ sense a user would recognise.}
 Chunk size & Chunks & Fixed & Broken & Stage-1 misses \\
 \midrule
 450 & 219 & 2 & 0 & 3 \\
-550 & 167 & 4 & 2 & 2 \\
-700 & 126 & 1 & 1 & 2 \\
+550 & 167 & 5 & 2 & 2 \\
+700 & 126 & 2 & 1 & 2 \\
 \bottomrule
 \end{tabular}
 
-\draft{This table is the most important caveat in the report, and it bounds the headline
-result substantially.
+\medskip
+This is the caveat I would keep if I could keep only one, because it bounds the headline
+result quite hard.
 
-At 700 characters the measured benefit nearly disappears: one rescue instead of four. The reason
-is mechanical. Larger chunks are more likely to contain both a general rule and the exception
-qualifying it, so the baseline retrieves a passage that happens to include the answer and stops
-failing -- there is less for the re-ranker to repair. At 450 characters the opposite happens:
-stage-1 misses rise to three, because rules fragment across chunk boundaries and no single chunk
-holds enough context to score highly.
+At 700 characters most of the measured benefit disappears -- two rescues instead of five. The
+reason is mechanical: bigger chunks are more likely to contain both the general rule and the
+exception that qualifies it, so the baseline retrieves a passage that happens to include the
+answer and stops failing. There is simply less left for the re-ranker to repair. At 450 the
+opposite happens and stage-1 misses go up to three, because rules get split across chunk
+boundaries and no single chunk holds enough context to score well.
 
-The consequence is that the benefit reported here is partly a function of a chunking parameter
-chosen by the author. A different reasonable choice would have produced a visibly different
-conclusion. Re-ranking is most valuable in a particular regime -- chunks small enough to isolate
-the answer, and a corpus where many chunks are topically similar. Both hold at 550 characters on
-this document; neither is universal. A report presenting only the 550 row would be overstating a
-general claim on the strength of a tuned one.}
+Which means the benefit reported here is partly a function of a chunking parameter I chose.
+Another reasonable choice would have produced a visibly different conclusion. Re-ranking pays
+off in a specific regime -- chunks small enough to isolate a rule from its exception, and a
+corpus where lots of chunks are topically similar. Both hold here at 550 characters; neither
+is a general law. Reporting only the 550 row would be using a tuned number to support an
+untuned claim.
 
 \section{Latency Profiling}
 
@@ -284,88 +298,92 @@ general claim on the strength of a tuned one.}
 \toprule
 & Baseline & With re-ranking & Overhead \\
 \midrule
-Mean over 10 queries & 8.2 ms & 169.8 ms & $20.7\times$ \\
-Range                & 6.8--10.2 ms & 144.2--216.5 ms & 15.6--27.1$\times$ \\
+Mean over 11 queries & 7.0 ms & 160.6 ms & $22.8\times$ \\
+Range                & 6.3--10.0 ms & 132.5--178.6 ms & 13.8--26.6$\times$ \\
 \bottomrule
 \end{tabular}
 
 \medskip
-Measured on CPU. Stage-1 cost is one query embedding (7.8\,ms) plus a
-$167 \times 384$ matmul. The cross-encoder costs 14.6\,ms per (query, chunk) pair.
+Measured on CPU. Stage-1 cost is one query embedding (10.8\,ms) plus a $167 \times 384$
+matmul. The cross-encoder costs 13.2\,ms per (query, chunk) pair.
 
-\draft{An overhead of $20.7\times$ sounds severe and is almost irrelevant in context.
-The absolute figures are 8.2\,ms and 169.8\,ms, and both feed an LLM generation step taking one
-to three seconds. Re-ranking adds roughly 160\,ms to a pipeline whose latency is dominated by a
-cost an order of magnitude larger. The multiplier alarms only when read without units: it
-compares a very fast operation to a slightly less fast one. Where re-ranking does become
-expensive is throughput under concurrent load, since the cross-encoder occupies the CPU for
-160\,ms of real compute while the matmul does not.}
+A $22.8\times$ overhead sounds bad and is close to irrelevant here. The absolute numbers are
+7.0\,ms and 160.6\,ms, and both of them feed an LLM call that takes one to three seconds.
+Re-ranking adds about 150\,ms to a pipeline whose latency is dominated by something an order
+of magnitude larger. The multiplier only alarms you if you read it without units: it is
+comparing a very fast operation to a slightly less fast one. Where re-ranking does start to
+hurt is throughput under concurrent load, because those 150\,ms are real CPU work holding the
+core, which the matmul is not.
 
 \section{Scaling: Why Not Cross-Encode Everything?}
 
-At a measured 14.6\,ms per pair:
+At a measured 13.2\,ms per pair:
 
 \begin{tabular}{lr}
 \toprule
 Scope & Time per query \\
 \midrule
-Top-10 re-rank (what we do) & 0.15 s \\
-This corpus, all 167 chunks & 2.44 s \\
-A 100k-chunk corpus         & 1{,}458.66 s (24 min) \\
-A 1M-chunk corpus           & 14{,}586.64 s (4.1 hours) \\
+Top-10 re-rank (what we do) & 0.13 s \\
+This corpus, all 167 chunks & 2.20 s \\
+A 100k-chunk corpus         & 1{,}315.31 s (22 min) \\
+A 1M-chunk corpus           & 13{,}153.14 s (3.7 hours) \\
 \bottomrule
 \end{tabular}
 
-\draft{The answer follows from where the query enters the computation.
+\medskip
+The answer falls out of where the query enters the computation.
 
-For the bi-encoder, chunk vectors depend only on chunks. They are computed once when the index is
-built and reused unchanged by every subsequent query, so per-query work is one embedding plus a
-similarity search -- which an ANN index makes sublinear in corpus size. Adding a million chunks
-increases build time and memory but barely changes query latency.
+For the bi-encoder, chunk vectors depend only on chunks. They are computed once when the
+index is built and reused unchanged by every query after that, so the per-query work is one
+embedding plus a similarity search -- and an ANN index makes that sublinear in corpus size.
+Adding a million chunks costs build time and memory but barely changes query latency.
 
-For the cross-encoder the score is a function of the pair. Nothing about a chunk's relevance can
-be known before the query exists, so no work amortises across queries and cost is strictly linear
-in candidates scored. The measured 14.6\,ms per pair makes this concrete: scoring this 167-chunk
-corpus exhaustively takes 2.44 seconds per query, and a 100k-chunk corpus would take 24 minutes.
-Not merely slow -- the wrong shape of computation to apply at corpus scale.
+For the cross-encoder the score is a property of the pair. Nothing about a chunk's relevance
+can be known before the query exists, so no work amortises across queries and cost is
+strictly linear in the number of candidates scored. The 13.2\,ms per pair makes that
+concrete: scoring this 167-chunk corpus exhaustively takes 2.2 seconds per query, and 100k
+chunks would take 22 minutes. That is not just slow, it is the wrong shape of computation to
+run at corpus scale.
 
-Two-stage retrieval resolves the asymmetry by letting each model do what it is cheap at. The
-bi-encoder reduces the corpus to 10 candidates at index-time cost; the cross-encoder adjudicates
-those 10 in 0.15 seconds, approximating cross-encoder precision at close to bi-encoder cost.
+Two-stage retrieval gets around the asymmetry by letting each model do the thing it is cheap
+at. The bi-encoder cuts the corpus down to 10 candidates at index-time cost, and the
+cross-encoder settles those 10 in 0.13 seconds -- roughly cross-encoder precision at roughly
+bi-encoder cost.
 
-The arrangement has a hard limit, which this data shows plainly. The re-ranker can only reorder
-what stage 1 retrieved. Two queries failed in both pipelines because the gold chunk never entered
-the top 10 -- the retaliate and heal-cap queries, both vocabulary mismatches sharing almost no
-content words with the governing rule. No improvement to the re-ranker could have recovered them.
-Stage-1 recall is the ceiling; stage 2 only determines how much of it is realised.}
+The arrangement has a hard limit, and this data shows it. The re-ranker can only reorder what
+stage 1 handed it. Two queries failed in both pipelines because the gold chunk never made the
+top 10 at all -- the retaliate and heal-cap queries, both vocabulary mismatches that share
+almost no content words with the rule that governs them. No amount of re-ranker quality
+recovers those. Stage-1 recall is the ceiling; stage 2 only decides how much of it you get.
 
 \section{Conclusion}
 
-\draft{The experiment compared two pipelines differing in exactly one step, holding
-corpus, chunking, prompt and generator constant. Across ten queries, cross-encoder re-ranking
-produced three genuine rescues, two regressions, and left two failures untouched because the gold
-chunk never reached the candidate set. One further apparent rescue proved an artifact of
-substring scoring.
+The experiment compared two pipelines that differ in exactly one step, holding corpus,
+chunking, prompt and generator constant. Across eleven queries, cross-encoder re-ranking
+produced four genuine rescues, two rank regressions that did not damage either answer, and
+left two failures untouched because the gold chunk never reached the candidate set. A fifth
+apparent rescue turned out to be an artifact of substring scoring.
 
-Three of ten is a real but modest effect, and two qualifications bound it. The chunk-size
-ablation shows the benefit is largely specific to a size that isolates rules from their
-exceptions; at 700 characters it nearly vanishes. And the regressions are not noise -- they stem
-from the same preference for elaboration that produces the rescues, which makes re-ranking a
-trade rather than a free improvement, its net value depending on how often a corpus states
-answers tersely.
+Four out of eleven is a real effect but a modest one, and the chunk-size sweep bounds it:
+the benefit is largely tied to a chunk size that separates rules from their exceptions, and
+at 700 characters it mostly goes away. The regressions turned out to be the weaker half of
+my own argument. They are not random -- they come from the same preference for elaboration
+that produces the rescues -- but on this corpus both demoted chunks had a near-duplicate
+still in the context, so neither answer suffered. On a document that states each rule once I
+would expect them to cost something real.
 
-What the results show most clearly is the compression of bi-encoder scores. Ten candidates within
-a 0.07 band, the correct chunk at rank 7 and 0.066 below a distractor, is not a near miss but an
-indication that cosine similarity over pooled embeddings had no resolution left to make the
-distinction. The cross-encoder separated the same candidates across several points. This is the
-mechanism behind every rescue observed, and the concrete form of the architectural difference
-described in Section 2.
+What comes through most clearly is how compressed the bi-encoder scores are. Ten candidates
+inside a 0.07 band, with the correct chunk at rank 7 and 0.066 behind a distractor, is not a
+near miss -- it says cosine similarity over pooled embeddings had no resolution left to make
+that distinction. The cross-encoder spread the same candidates over several points. That is
+the mechanism behind every rescue here, and the concrete form of the architectural difference
+in Section 2.
 
-Given more time the clearest improvement would target stage 1 rather than stage 2. Both
-unreachable failures were vocabulary mismatches, precisely what a lexical signal handles well; a
-hybrid BM25 and dense stage would likely have placed both gold chunks in the top 10 and handed
-them to a re-ranker already shown capable of promoting them. Raising recall at stage 1 lifts the
-ceiling, whereas further work on stage 2 only redistributes what lies beneath it.}
+With more time I would work on stage 1 rather than stage 2. Both unreachable failures were
+vocabulary mismatches, which is exactly what a lexical signal is good at; a hybrid BM25 plus
+dense first stage would probably have put both gold chunks in the top 10 and handed them to a
+re-ranker that has already shown it can promote them. Raising stage-1 recall lifts the
+ceiling. More work on stage 2 only redistributes what is underneath it.
 
 \appendix
 \section{Reproducing}
