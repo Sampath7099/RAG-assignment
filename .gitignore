@@ -1,9 +1,8 @@
-# Corpus: freely distributed by its author, but not ours to redistribute.
-# Fetch it with the curl command in the README.
+# Corpus PDF (download separately, see README)
 gloomhaven_rulebook.pdf
 
-# Course handout, not part of the deliverable
-RAG_LMA_Assignment_v1_copy.pdf
+# Assignment handout
+RAG_LMA_Assignment_v1*.pdf
 
 .ipynb_checkpoints/
 __pycache__/
